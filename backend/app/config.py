@@ -31,9 +31,26 @@ class Settings(BaseSettings):
 
     # --- Ollama / AI layer --------------------------------------------------
     OLLAMA_BASE_URL: str = "http://localhost:11434"
-    OLLAMA_TOOL_MODEL: str = "qwen3:8b"
+    # qwen3.5:9b is a tool-calling model that emits <think>...</think> reasoning
+    # blocks before its answer; the agent layer strips/streams those separately.
+    OLLAMA_TOOL_MODEL: str = "qwen3.5:9b"
     OLLAMA_CODE_MODEL: str = "qwen2.5-coder:14b"
     OLLAMA_EMBED_MODEL: str = "nomic-embed-text"
+
+    # --- Agent --------------------------------------------------------------
+    # Upper bound on LangGraph node visits per turn; guards against tool loops.
+    AGENT_RECURSION_LIMIT: int = 25
+    # Enable the model's native reasoning: qwen3.5:9b then streams its
+    # <think>-style reasoning separately, which the UI shows in its thinking
+    # panel and which never leaks into the stored answer.
+    OLLAMA_REASONING: bool = True
+
+    # --- Auth / JWT ---------------------------------------------------------
+    # NOTE: override JWT_SECRET_KEY in the environment for any non-local use.
+    JWT_SECRET_KEY: str = "dev-insecure-change-me-in-production"
+    JWT_ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
     # --- HTTP / CORS --------------------------------------------------------
     # Accepts a JSON array (``["http://a", "http://b"]``) or a comma separated

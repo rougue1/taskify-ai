@@ -1,12 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { MessageSquare, Moon, Sparkles, Sun } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { LogOut, MessageSquare, Moon, Sparkles, Sun } from "lucide-react";
 import { useTheme } from "next-themes";
 
 import { Button } from "@/components/ui/button";
 import { healthCheck } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { useAuthStore } from "@/store/authStore";
 
 interface HeaderProps {
   onToggleChat?: () => void;
@@ -15,9 +17,17 @@ interface HeaderProps {
 type Connectivity = "checking" | "connected" | "disconnected";
 
 export function Header({ onToggleChat }: HeaderProps) {
+  const router = useRouter();
   const { resolvedTheme, setTheme } = useTheme();
+  const user = useAuthStore((s) => s.user);
+  const logout = useAuthStore((s) => s.logout);
   const [mounted, setMounted] = useState(false);
   const [status, setStatus] = useState<Connectivity>("checking");
+
+  const handleLogout = () => {
+    logout();
+    router.replace("/login");
+  };
 
   useEffect(() => {
     setMounted(true);
@@ -100,6 +110,26 @@ export function Header({ onToggleChat }: HeaderProps) {
             <Moon className="h-4 w-4" />
           )}
         </Button>
+
+        {user && (
+          <>
+            <span
+              className="text-muted-foreground hidden max-w-[14rem] truncate text-xs md:inline"
+              title={user.email}
+            >
+              {user.email}
+            </span>
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Log out"
+              title="Log out"
+              onClick={handleLogout}
+            >
+              <LogOut className="h-4 w-4" />
+            </Button>
+          </>
+        )}
       </div>
     </header>
   );

@@ -13,7 +13,9 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app import __version__
 from app.config import settings
+from app.errors import register_exception_handlers
 from app.routers import agent as agent_router
+from app.routers import auth as auth_router
 from app.routers import tasks as tasks_router
 
 logging.basicConfig(level=logging.DEBUG if settings.DEBUG else logging.INFO)
@@ -68,6 +70,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+register_exception_handlers(app)
+
+app.include_router(auth_router.router, prefix="/api/v1")
 app.include_router(tasks_router.router, prefix="/api/v1")
 app.include_router(agent_router.router, prefix="/api/v1")
 

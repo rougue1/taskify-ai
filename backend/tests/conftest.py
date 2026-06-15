@@ -8,6 +8,7 @@ operate on the same throwaway database as the API client.
 
 from __future__ import annotations
 
+import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import (
@@ -19,8 +20,10 @@ from sqlalchemy.pool import StaticPool
 
 import app.database as database
 import app.models  # noqa: F401 - ensure models register on Base.metadata
+from app.agent import sessions as agent_sessions
 from app.database import Base, get_session
 from app.main import app
+from app.services import user_service
 
 TEST_DATABASE_URL = "sqlite+aiosqlite://"
 
@@ -56,6 +59,15 @@ async def db_session(session_factory):
         yield session
 
 
+@pytest.fixture(autouse=True)
+def _clear_agent_sessions():
+    """Reset the in-memory agent session store between tests."""
+
+    agent_sessions.reset()
+    yield
+    agent_sessions.reset()
+
+
 @pytest_asyncio.fixture
 async def client(session_factory):
     async def _get_session_override():
@@ -67,3 +79,39 @@ async def client(session_factory):
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac
     app.dependency_overrides.clear()
+
+
+async def register_user(
+    client: AsyncClient, email: str = "user@test.local", password: str = "password123"
+) -> dict:
+    """Register a user through the API and return the token-pair payload."""
+
+    response = await client.post(
+        "/api/v1/auth/register", json={"email": email, "password": password}
+    )
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+def auth_header(token: str) -> dict[str, str]:
+    """Build an Authorization header dict for a bearer token."""
+
+    return {"Authorization": f"Bearer {token}"}
+
+
+@pytest_asyncio.fixture
+async def auth_client(client):
+    """An AsyncClient pre-authenticated as a default registered user."""
+
+    tokens = await register_user(client)
+    client.headers.update(auth_header(tokens["access_token"]))
+    yield client
+
+
+@pytest_asyncio.fixture
+async def agent_user(session_factory):
+    """Create a user directly and return its id (for tools/context tests)."""
+
+    async with session_factory() as session:
+        user = await user_service.create_user(session, "agent@test.local", "password123")
+        return user.id

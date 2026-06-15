@@ -1,8 +1,16 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { MessageSquare, Plus } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowUp,
+  ChevronLeft,
+  ChevronRight,
+  MessageSquare,
+  Plus,
+} from "lucide-react";
 
+import { AuthGate } from "@/components/AuthGate";
 import { ChatPanel } from "@/components/ChatPanel";
 import { Header } from "@/components/Header";
 import { TaskForm } from "@/components/TaskForm";
@@ -15,8 +23,21 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useTaskStore } from "@/store/taskStore";
-import type { CreateTaskInput, Task, TaskStatus } from "@/types";
+import {
+  SORT_FIELD_LABELS,
+  type CreateTaskInput,
+  type Task,
+  type TaskSortField,
+  type TaskStatus,
+} from "@/types";
 
 const FILTERS: { label: string; value: TaskStatus | "all" }[] = [
   { label: "All", value: "all" },
@@ -25,12 +46,27 @@ const FILTERS: { label: string; value: TaskStatus | "all" }[] = [
   { label: "Done", value: "done" },
 ];
 
-export default function Home() {
+const SORT_FIELDS: TaskSortField[] = [
+  "created_at",
+  "updated_at",
+  "due_date",
+  "priority",
+  "title",
+];
+
+function Dashboard() {
   const fetchTasks = useTaskStore((state) => state.fetchTasks);
   const setFilters = useTaskStore((state) => state.setFilters);
+  const setSort = useTaskStore((state) => state.setSort);
+  const setPage = useTaskStore((state) => state.setPage);
   const createTask = useTaskStore((state) => state.createTask);
   const updateTask = useTaskStore((state) => state.updateTask);
   const deleteTask = useTaskStore((state) => state.deleteTask);
+  const sortBy = useTaskStore((state) => state.sortBy);
+  const sortOrder = useTaskStore((state) => state.sortOrder);
+  const page = useTaskStore((state) => state.page);
+  const pages = useTaskStore((state) => state.pages);
+  const total = useTaskStore((state) => state.total);
 
   const [activeFilter, setActiveFilter] = useState<TaskStatus | "all">("all");
   const [chatOpen, setChatOpen] = useState(false);
@@ -61,7 +97,7 @@ export default function Home() {
     try {
       await deleteTask(task.id);
     } catch {
-      // error is surfaced via the store; nothing else to do here
+      // error surfaced via toast; nothing else to do here
     }
   };
 
@@ -84,11 +120,11 @@ export default function Home() {
 
   return (
     <div className="flex h-screen flex-col">
-      <Header onToggleChat={() => setChatOpen((open) => !open)} />
+      <Header onToggleChat={() => setChatOpen((value) => !value)} />
 
       <div className="flex flex-1 overflow-hidden">
         <main className="flex flex-1 flex-col overflow-hidden">
-          <div className="flex items-center justify-between gap-3 border-b px-4 py-3 sm:px-6">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3 sm:px-6">
             <div className="flex gap-1 overflow-x-auto">
               {FILTERS.map((filter) => (
                 <Button
@@ -101,19 +137,75 @@ export default function Home() {
                 </Button>
               ))}
             </div>
-            <Button size="sm" onClick={openCreate} className="shrink-0">
-              <Plus className="h-4 w-4" />
-              <span className="hidden sm:inline">New Task</span>
-            </Button>
+
+            <div className="flex items-center gap-2">
+              <Select
+                value={sortBy}
+                onValueChange={(value) => setSort(value as TaskSortField, sortOrder)}
+              >
+                <SelectTrigger size="sm" className="w-[8.5rem]">
+                  <span className="text-muted-foreground mr-1 text-xs">Sort:</span>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {SORT_FIELDS.map((field) => (
+                    <SelectItem key={field} value={field}>
+                      {SORT_FIELD_LABELS[field]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => setSort(sortBy, sortOrder === "asc" ? "desc" : "asc")}
+                aria-label={`Sort ${sortOrder === "asc" ? "descending" : "ascending"}`}
+                title={sortOrder === "asc" ? "Ascending" : "Descending"}
+              >
+                {sortOrder === "asc" ? (
+                  <ArrowUp className="h-4 w-4" />
+                ) : (
+                  <ArrowDown className="h-4 w-4" />
+                )}
+              </Button>
+              <Button size="sm" onClick={openCreate} className="shrink-0">
+                <Plus className="h-4 w-4" />
+                <span className="hidden sm:inline">New Task</span>
+              </Button>
+            </div>
           </div>
 
           <div className="flex-1 overflow-y-auto p-4 sm:p-6">
-            <TaskList
-              onEdit={openEdit}
-              onDelete={handleDelete}
-              onCreate={openCreate}
-            />
+            <TaskList onEdit={openEdit} onDelete={handleDelete} onCreate={openCreate} />
           </div>
+
+          {pages > 1 && (
+            <div className="flex items-center justify-between border-t px-4 py-3 text-sm sm:px-6">
+              <span className="text-muted-foreground">
+                Page {page} of {pages} · {total} task{total === 1 ? "" : "s"}
+              </span>
+              <div className="flex gap-1">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPage(page - 1)}
+                  disabled={page <= 1}
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                  Prev
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPage(page + 1)}
+                  disabled={page >= pages}
+                >
+                  Next
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          )}
         </main>
 
         <ChatPanel open={chatOpen} onClose={() => setChatOpen(false)} />
@@ -132,9 +224,9 @@ export default function Home() {
 
       <Dialog
         open={dialogOpen}
-        onOpenChange={(open) => {
-          setDialogOpen(open);
-          if (!open) setEditing(null);
+        onOpenChange={(value) => {
+          setDialogOpen(value);
+          if (!value) setEditing(null);
         }}
       >
         <DialogContent>
@@ -155,5 +247,13 @@ export default function Home() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+export default function Home() {
+  return (
+    <AuthGate>
+      <Dashboard />
+    </AuthGate>
   );
 }

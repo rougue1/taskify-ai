@@ -22,12 +22,19 @@ from app.config import settings
 
 
 def _build_llm() -> ChatOllama:
-    """Create the tool-calling chat model bound to the agent's tools."""
+    """Create the tool-calling chat model bound to the agent's tools.
+
+    ``reasoning`` enables qwen3.5:9b's native thinking, which Ollama returns as a
+    separate channel (surfaced on ``additional_kwargs['reasoning_content']``)
+    rather than inline ``<think>`` tags. The streaming layer routes it to
+    ``thinking`` events; either representation is handled.
+    """
 
     llm = ChatOllama(
         model=settings.OLLAMA_TOOL_MODEL,
         base_url=settings.OLLAMA_BASE_URL,
         temperature=0.0,
+        reasoning=settings.OLLAMA_REASONING,
     )
     return llm.bind_tools(TOOLS)
 
