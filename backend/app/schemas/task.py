@@ -84,3 +84,35 @@ class PaginatedTasks(BaseModel):
     page: int
     page_size: int
     pages: int
+
+
+class BulkUpdateRequest(BaseModel):
+    """Payload for ``PATCH /tasks/bulk`` — a set of ids plus a partial update."""
+
+    ids: list[int] = Field(..., min_length=1)
+    update: TaskUpdate
+
+
+class BulkUpdateResponse(BaseModel):
+    """Result of a bulk update: the affected tasks and how many were changed."""
+
+    updated: list[TaskRead]
+    count: int
+
+
+class SemanticSearchRequest(BaseModel):
+    """Payload for ``POST /tasks/semantic-search``."""
+
+    query: str = Field(..., min_length=1)
+
+
+class SemanticSearchResponse(BaseModel):
+    """Result of a semantic search.
+
+    ``available`` is ``False`` when the RAG stack (PostgreSQL + pgvector + the
+    embedding model) is not configured/reachable; ``items`` is then empty.
+    """
+
+    query: str
+    available: bool
+    items: list[TaskRead] = Field(default_factory=list)

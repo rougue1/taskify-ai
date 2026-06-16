@@ -14,14 +14,18 @@ from app.database import get_session
 from app.dependencies import CurrentUser
 from app.models.task import TaskPriority, TaskStatus
 from app.schemas.task import (
+    BulkUpdateRequest,
+    BulkUpdateResponse,
     PaginatedTasks,
+    SemanticSearchRequest,
+    SemanticSearchResponse,
     SortOrder,
     TaskCreate,
     TaskRead,
     TaskSortField,
     TaskUpdate,
 )
-from app.services import task_service
+from app.services import embedding, task_service
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
@@ -73,6 +77,50 @@ async def create_task(
     """Create a new task owned by the current user."""
 
     return await task_service.create_task(session, payload, user_id=current_user.id)
+
+
+@router.patch("/bulk", response_model=BulkUpdateResponse, summary="Bulk update tasks")
+async def bulk_update_tasks(
+    payload: BulkUpdateRequest, current_user: CurrentUser, session: SessionDep
+) -> BulkUpdateResponse:
+    """Apply one partial update to many of the current user's tasks at once.
+
+    Declared before ``/{task_id}`` so the literal ``/bulk`` path is not parsed as
+    a task id. Only tasks owned by the user are affected; unknown ids are ignored.
+    """
+
+    tasks = await task_service.bulk_update(
+        session, payload.ids, payload.update, user_id=current_user.id
+    )
+    return BulkUpdateResponse(
+        updated=[TaskRead.model_validate(task) for task in tasks], count=len(tasks)
+    )
+
+
+@router.post(
+    "/semantic-search",
+    response_model=SemanticSearchResponse,
+    summary="Semantic search over tasks",
+)
+async def semantic_search_tasks(
+    payload: SemanticSearchRequest, current_user: CurrentUser, session: SessionDep
+) -> SemanticSearchResponse:
+    """Return the user's most semantically similar tasks for a query.
+
+    When the RAG stack (PostgreSQL + pgvector + embedding model) is unavailable,
+    responds with ``available: false`` and an empty list rather than erroring.
+    """
+
+    results = await embedding.semantic_search(
+        session, user_id=current_user.id, query=payload.query, limit=5
+    )
+    if results is None:
+        return SemanticSearchResponse(query=payload.query, available=False, items=[])
+    return SemanticSearchResponse(
+        query=payload.query,
+        available=True,
+        items=[TaskRead.model_validate(task) for task in results],
+    )
 
 
 @router.get("/{task_id}", response_model=TaskRead, summary="Get a task")

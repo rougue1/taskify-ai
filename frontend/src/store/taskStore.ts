@@ -16,10 +16,15 @@ import type {
   Task,
   TaskFilters,
   TaskSortField,
+  TaskStatus,
   UpdateTaskInput,
 } from "@/types";
 
-const PAGE_SIZE = 12;
+// The Kanban board shows every task at once (grouped into status columns). The
+// list endpoint caps page_size at 100, so we page through and accumulate to load
+// them all rather than requesting one oversized page (which would 422).
+const PAGE_SIZE = 100;
+const MAX_PAGES = 50; // safety bound: up to 5,000 tasks
 
 interface TaskState {
   // Task state
@@ -48,6 +53,9 @@ interface TaskState {
   createTask: (input: CreateTaskInput) => Promise<void>;
   updateTask: (id: number, input: UpdateTaskInput) => Promise<void>;
   deleteTask: (id: number) => Promise<void>;
+  // Board interactions
+  setTasks: (tasks: Task[]) => void;
+  moveTaskStatus: (id: number, status: TaskStatus) => Promise<void>;
 
   // Chat actions
   sendChatMessage: (message: string) => Promise<void>;
@@ -94,19 +102,23 @@ export const useTaskStore = create<TaskState>((set, get) => ({
   fetchTasks: async () => {
     set({ isLoading: true, error: null });
     try {
-      const { filters, sortBy, sortOrder, page } = get();
-      const res = await api.getTasks({
-        ...filters,
-        sort_by: sortBy,
-        sort_order: sortOrder,
-        page,
-        page_size: PAGE_SIZE,
-      });
+      const { filters, sortBy, sortOrder } = get();
+      const query = { ...filters, sort_by: sortBy, sort_order: sortOrder };
+
+      // Load the first page, then keep fetching until every task is gathered.
+      const first = await api.getTasks({ ...query, page: 1, page_size: PAGE_SIZE });
+      let items = first.items;
+      const totalPages = Math.min(Math.max(1, first.pages), MAX_PAGES);
+      for (let page = 2; page <= totalPages; page += 1) {
+        const next = await api.getTasks({ ...query, page, page_size: PAGE_SIZE });
+        items = [...items, ...next.items];
+      }
+
       set({
-        tasks: res.items,
-        total: res.total,
-        pages: Math.max(1, res.pages),
-        page: res.page,
+        tasks: items,
+        total: first.total,
+        pages: 1,
+        page: 1,
         isLoading: false,
       });
     } catch (error) {
@@ -179,6 +191,27 @@ export const useTaskStore = create<TaskState>((set, get) => ({
       set({ tasks: previous, total: previousTotal, error: toMessage(error) });
       toast.error(`Could not delete task: ${toMessage(error)}`);
       throw error;
+    }
+  },
+
+  // Replace the task array wholesale — used by the Kanban board to commit a new
+  // visual order (and column membership) after a drag, with no network call.
+  setTasks: (tasks) => set({ tasks }),
+
+  // Quietly move a task to a new status (drag between columns / quick-complete).
+  // No success toast — the card visibly moving is the feedback. On failure we
+  // re-sync from the server so the board never lies about the real state.
+  moveTaskStatus: async (id, status) => {
+    set((s) => ({
+      tasks: s.tasks.map((t) => (t.id === id ? { ...t, status } : t)),
+    }));
+    try {
+      const updated = await api.updateTask(id, { status });
+      set((s) => ({ tasks: s.tasks.map((t) => (t.id === id ? updated : t)) }));
+    } catch (error) {
+      set({ error: toMessage(error) });
+      toast.error(`Could not move task: ${toMessage(error)}`);
+      void get().fetchTasks();
     }
   },
 

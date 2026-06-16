@@ -5,6 +5,10 @@ import type { NextConfig } from "next";
 const BACKEND_URL = process.env.BACKEND_URL ?? "http://localhost:8000";
 
 const nextConfig: NextConfig = {
+  // Emit a self-contained server bundle (.next/standalone) so the production
+  // Docker image can run `node server.js` without the full node_modules tree.
+  output: "standalone",
+
   // Proxy all versioned API calls to the backend so the browser only ever talks
   // to the Next.js origin (no CORS in the browser, backend URL stays private).
   async rewrites() {

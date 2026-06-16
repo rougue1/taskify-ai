@@ -6,6 +6,15 @@
 #
 #   ./start.sh
 #
+# This is the lightweight local path: the backend defaults to SQLite, so
+# everything works EXCEPT semantic search (which needs PostgreSQL + pgvector).
+# For the full stack with Postgres, pgvector and Ollama in containers, use:
+#
+#   cp .env.example .env && make dev && make pull-models && make migrate
+#
+# New backend deps (dateparser, asyncpg, pgvector, psycopg2-binary) are in
+# backend/requirements.txt — re-run `pip install -r requirements.txt` in the
+# venv if the backend fails to import them.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

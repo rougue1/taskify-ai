@@ -11,6 +11,7 @@ another account's tasks.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import Select, case, func, nulls_last, or_, select
@@ -18,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.task import Task, TaskPriority, TaskStatus
 from app.schemas.task import SortOrder, TaskCreate, TaskSortField, TaskUpdate
+from app.services import embedding
 
 # Semantic rank for priority so sorting follows urgency, not alphabetical order.
 _PRIORITY_ORDER = {
@@ -115,6 +117,20 @@ async def list_tasks_page(
     return list(result.scalars().all()), total
 
 
+async def user_task_numbers(session: AsyncSession, *, user_id: int) -> dict[int, int]:
+    """Map each of the user's task ids to its 1-based position in creation order.
+
+    The agent uses this so it can refer to a task by a stable, per-user number
+    ("Task 1", "Task 2", …) in its replies instead of leaking the global database
+    row id. Ordering by ascending id keeps the numbering stable as new tasks are
+    appended; numbers only shift when an earlier task is deleted.
+    """
+
+    stmt = select(Task.id).where(Task.user_id == user_id).order_by(Task.id.asc())
+    ids = (await session.execute(stmt)).scalars().all()
+    return {task_id: position for position, task_id in enumerate(ids, start=1)}
+
+
 async def get_task(
     session: AsyncSession, task_id: int, *, user_id: int | None = None
 ) -> Task | None:
@@ -129,27 +145,39 @@ async def get_task(
 
 
 async def create_task(session: AsyncSession, data: TaskCreate, *, user_id: int) -> Task:
-    """Persist a new task owned by ``user_id`` and return it."""
+    """Persist a new task owned by ``user_id`` and return it.
+
+    A semantic-search embedding is generated best-effort after the task is saved
+    (a no-op unless running on PostgreSQL with Ollama reachable).
+    """
 
     task = Task(**data.model_dump(), user_id=user_id)
     session.add(task)
     await session.commit()
     await session.refresh(task)
+    await embedding.store_task_embedding(session, task)
     return task
 
 
 async def update_task(
     session: AsyncSession, task_id: int, data: TaskUpdate, *, user_id: int | None = None
 ) -> Task | None:
-    """Apply a partial update to a task. Returns ``None`` if not found/owned."""
+    """Apply a partial update to a task. Returns ``None`` if not found/owned.
+
+    Re-embeds the task only when its title or description changed, so status or
+    priority edits don't trigger an unnecessary embedding call.
+    """
 
     task = await get_task(session, task_id, user_id=user_id)
     if task is None:
         return None
-    for field, value in data.model_dump(exclude_unset=True).items():
+    fields = data.model_dump(exclude_unset=True)
+    for field, value in fields.items():
         setattr(task, field, value)
     await session.commit()
     await session.refresh(task)
+    if "title" in fields or "description" in fields:
+        await embedding.store_task_embedding(session, task)
     return task
 
 
@@ -239,6 +267,8 @@ async def summarize(session: AsyncSession, *, user_id: int | None = None) -> dic
         )
         by_priority[key] = count
 
+    numbers = await user_task_numbers(session, user_id=user_id) if user_id is not None else {}
+
     upcoming_stmt = (
         _scoped(select(Task), user_id)
         .where(Task.due_date.is_not(None))
@@ -247,7 +277,10 @@ async def summarize(session: AsyncSession, *, user_id: int | None = None) -> dic
         .limit(3)
     )
     upcoming_rows = await session.execute(upcoming_stmt)
-    upcoming = [task.to_dict() for task in upcoming_rows.scalars().all()]
+    upcoming = [
+        {**task.to_dict(), "number": numbers.get(task.id)}
+        for task in upcoming_rows.scalars().all()
+    ]
 
     return {
         "total": sum(by_status.values()),
@@ -255,3 +288,76 @@ async def summarize(session: AsyncSession, *, user_id: int | None = None) -> dic
         "by_priority": by_priority,
         "upcoming": upcoming,
     }
+
+
+def _is_overdue(task: Task, now_aware: datetime, now_naive: datetime) -> bool:
+    """True if an open task's due date is in the past (tz-aware or naive safe)."""
+
+    if task.due_date is None or task.status == TaskStatus.done:
+        return False
+    if task.due_date.tzinfo is None:
+        return task.due_date < now_naive
+    return task.due_date < now_aware
+
+
+async def select_for_bulk(
+    session: AsyncSession,
+    *,
+    user_id: int,
+    filter: str,
+    filter_value: str | None = None,
+) -> list[Task]:
+    """Resolve a coarse bulk filter to the user's matching tasks.
+
+    ``filter`` is one of ``all``, ``status``, ``priority``, ``tag`` or
+    ``overdue``. Tag and value matching is done in Python so it stays portable
+    across SQLite and PostgreSQL (tags live in a JSON column).
+    """
+
+    tasks = await list_tasks(
+        session, user_id=user_id, sort_by=TaskSortField.created_at, sort_order=SortOrder.asc
+    )
+    key = (filter or "all").lower()
+    if key == "all":
+        return tasks
+    if key == "overdue":
+        now_aware = datetime.now(UTC)
+        return [t for t in tasks if _is_overdue(t, now_aware, now_aware.replace(tzinfo=None))]
+    if key == "status":
+        return [t for t in tasks if t.status.value == filter_value]
+    if key == "priority":
+        return [t for t in tasks if t.priority.value == filter_value]
+    if key == "tag":
+        wanted = (filter_value or "").lower()
+        return [t for t in tasks if any(tag.lower() == wanted for tag in (t.tags or []))]
+    return []
+
+
+async def bulk_update(
+    session: AsyncSession, ids: list[int], data: TaskUpdate, *, user_id: int
+) -> list[Task]:
+    """Apply a partial update to every owned task in ``ids``; return the updated rows."""
+
+    if not ids:
+        return []
+    stmt = select(Task).where(Task.user_id == user_id, Task.id.in_(ids))
+    tasks = list((await session.execute(stmt)).scalars().all())
+    fields = data.model_dump(exclude_unset=True)
+    for task in tasks:
+        for field, value in fields.items():
+            setattr(task, field, value)
+    await session.commit()
+    return tasks
+
+
+async def bulk_delete(session: AsyncSession, ids: list[int], *, user_id: int) -> int:
+    """Delete every owned task in ``ids``; return the number removed."""
+
+    if not ids:
+        return 0
+    stmt = select(Task).where(Task.user_id == user_id, Task.id.in_(ids))
+    tasks = list((await session.execute(stmt)).scalars().all())
+    for task in tasks:
+        await session.delete(task)
+    await session.commit()
+    return len(tasks)

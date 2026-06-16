@@ -10,9 +10,11 @@ from pathlib import Path
 import httpx
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
 
 from app import __version__
 from app.config import settings
+from app.database import engine
 from app.errors import register_exception_handlers
 from app.routers import agent as agent_router
 from app.routers import auth as auth_router
@@ -101,15 +103,35 @@ async def _check_ollama() -> dict:
         }
 
 
+async def _check_db() -> bool:
+    """Probe the database with a trivial query; report whether it is reachable."""
+
+    try:
+        async with engine.connect() as connection:
+            await connection.execute(text("SELECT 1"))
+        return True
+    except Exception:  # noqa: BLE001 - connectivity probe must not raise
+        return False
+
+
 @app.get("/health", tags=["health"], summary="Health check")
 async def health() -> dict:
-    """Return service status, version and live Ollama connectivity."""
+    """Return service status plus live database and Ollama connectivity.
 
+    ``status`` stays ``"ok"`` whenever the API itself is up (the frontend uses it
+    as a liveness signal); ``db`` and ``ollama`` report the health of each
+    dependency, with the full Ollama probe under ``ollama_detail``.
+    """
+
+    db_ok = await _check_db()
+    ollama = await _check_ollama()
     return {
         "status": "ok",
         "version": __version__,
         "environment": settings.APP_ENV,
-        "ollama": await _check_ollama(),
+        "db": "connected" if db_ok else "disconnected",
+        "ollama": "reachable" if ollama.get("connected") else "unreachable",
+        "ollama_detail": ollama,
     }
 
 

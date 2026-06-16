@@ -26,7 +26,7 @@ a focused goal, a checklist of work, and the **git tag** cut on completion.
 
 ---
 
-## ⬜ v0.2 — Core CRUD UI + REST API
+## ✅ v0.2 — Core CRUD UI + REST API
 
 **Goal:** Harden the CRUD experience into a polished, complete product surface.
 
@@ -40,7 +40,7 @@ a focused goal, a checklist of work, and the **git tag** cut on completion.
 
 ---
 
-## ⬜ v0.3 — LangGraph Agent + Tool Calling
+## ✅ v0.3 — LangGraph Agent + Tool Calling
 
 **Goal:** Deepen the agent so it reliably searches, creates and prioritizes tasks.
 
@@ -53,7 +53,7 @@ a focused goal, a checklist of work, and the **git tag** cut on completion.
 
 ---
 
-## ⬜ v0.4 — SSE Streaming
+## ✅ v0.4 — SSE Streaming
 
 **Goal:** Stream agent tokens to the chat UI in real time.
 
@@ -66,7 +66,7 @@ a focused goal, a checklist of work, and the **git tag** cut on completion.
 
 ---
 
-## ⬜ v0.5 — JWT Authentication + User-Scoped Tasks
+## ✅ v0.5 — JWT Authentication + User-Scoped Tasks
 
 **Goal:** Multi-user support with secure, per-user data.
 
@@ -79,7 +79,7 @@ a focused goal, a checklist of work, and the **git tag** cut on completion.
 
 ---
 
-## ⬜ v0.6 — Richer Tools
+## ✅ v0.6 — Richer Tools
 
 **Goal:** More capable, real-world task operations.
 
@@ -92,7 +92,7 @@ a focused goal, a checklist of work, and the **git tag** cut on completion.
 
 ---
 
-## ⬜ v0.7 — RAG over Tasks
+## ✅ v0.7 — RAG over Tasks
 
 **Goal:** Semantic search and retrieval-augmented answers about tasks.
 
@@ -104,7 +104,7 @@ a focused goal, a checklist of work, and the **git tag** cut on completion.
 
 ---
 
-## ⬜ v0.8 — Docker Compose + Production Deployment
+## ✅ v0.8 — Docker Compose + Production Deployment
 
 **Goal:** One-command, production-ready deployment.
 
@@ -113,3 +113,23 @@ a focused goal, a checklist of work, and the **git tag** cut on completion.
 - Reverse proxy, environment hardening, and deployment docs.
 
 **Tag:** `git tag v0.8-deploy`
+
+---
+
+## Final milestone — Kanban UI + RAG + Docker
+
+The final pass shipped, on top of the roadmap above:
+
+- **Kanban board** with `@dnd-kit` drag & drop (To Do / In Progress / Done),
+  per-column counts, hover quick-actions, and a quick-complete toggle —
+  replacing the old list view.
+- **Slide-in task detail panel** with inline editing (status / priority / due
+  date / tags), timestamps, edit/delete, backdrop + `Esc` to close.
+- **Natural-language due dates** and **bulk operations** (v0.6 tools).
+- **Semantic search** over tasks via pgvector + `nomic-embed-text` (v0.7).
+- **Docker Compose** stack + Makefile + health checks (v0.8).
+- **Agent fix:** tasks are referenced by a stable per-user number in chat, not
+  the global database id.
+
+Deferred for a future pass: **calendar view** and **recurring tasks** (the
+remaining v0.6 ideas).

@@ -1,5 +1,12 @@
 """Async SQLAlchemy engine, session factory and helpers.
 
+The engine is driver-agnostic: it runs on SQLite (``sqlite+aiosqlite``) for local
+dev and tests, and on PostgreSQL (``postgresql+asyncpg``) in Docker/production —
+switching is purely a matter of ``DATABASE_URL``. Semantic search (pgvector) is
+only available on PostgreSQL; the ``tasks.embedding`` column is added by a
+PostgreSQL-only migration and the embedding service degrades gracefully
+elsewhere (see :mod:`app.services.embedding`).
+
 The session machinery is exposed in two ways:
 
 * :func:`get_session` — a FastAPI dependency that yields a request-scoped
